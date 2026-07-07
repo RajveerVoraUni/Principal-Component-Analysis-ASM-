@@ -1,0 +1,420 @@
+---
+title: "Principal Component Analysis: Application and Implementation"
+author: "Aklanta Borah, Amartya Amritanshu, Rajveer Vora, Somesh Biswas"
+date: "30 April, 2026"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  fig.width = 6,
+  fig.height = 4
+)
+```
+
+\newpage
+
+# PCA on the Iris Dataset
+
+## The Dataset
+
+The Iris dataset consists of **150 observations** from 3 species of flowers (*setosa*, *versicolor*, *virginica*), each measured across 4 features:
+
+-   $x_1$: Sepal Length (cm)
+-   $x_2$: Sepal Width (cm)
+-   $x_3$: Petal Length (cm)
+-   $x_4$: Petal Width (cm)
+
+The data matrix $\mathcal{X}$ is of size $150 \times 4$. Our goal is to reduce this to a lower-dimensional representation while preserving as much variance as possible.
+
+> **Note:** The scale of all variables should be the same for PCA to give meaningful results. Here all variables are in centimetres, so we do not scale.
+
+```{r load-iris}
+data(iris)
+X <- as.matrix(iris[, 1:4])
+head(X)
+```
+
+## Step-by-Step Manual PCA
+
+### Step 1: Compute the Sample Mean
+
+The sample mean vector $\bar{x}^\top$ is computed as:
+
+$$\bar{x}^\top = \frac{1}{n}\sum_{i=1}^n x_i^\top$$
+
+```{r mean}
+mu <- colMeans(X)
+mu
+```
+
+### Step 2: Center the Data
+
+We subtract the mean from each observation to obtain the centred data matrix:
+
+$$\mathcal{X}_c = \mathcal{X} - \mathbf{1}_n \bar{x}^\top$$
+
+```{r center}
+Xc <- sweep(X, 2, mu)
+head(Xc)
+```
+
+### Step 3: Compute the Sample Covariance Matrix
+
+$$S = \frac{1}{n} \mathcal{X}_c^\top \mathcal{X}_c$$
+
+```{r covariance}
+S <- t(Xc) %*% Xc / nrow(X)
+round(S, 4)
+```
+
+### Step 4: Eigen Decomposition
+
+The PCA solution requires decomposing $S$ into its eigenvalues and eigenvectors:
+
+$$S = G \Lambda G^\top$$
+
+where $\Lambda = \text{diag}(\lambda_1, \lambda_2, \ldots, \lambda_p)$ with $\lambda_1 \geq \lambda_2 \geq \cdots \geq \lambda_p$.
+
+```{r eigen}
+eig     <- eigen(S)
+values  <- eig$values    # eigenvalues
+vectors <- eig$vectors   # eigenvector matrix G
+
+cat("Eigenvalues:\n")
+round(values, 5)
+
+cat("\nEigenvector matrix G:\n")
+round(vectors, 4)
+```
+
+### Step 5: PCA Transformation
+
+The scores (principal components) are obtained by projecting the centred data onto the eigenvectors:
+
+$$\mathcal{Y} = \mathcal{X}_c \, G$$
+
+```{r scores}
+Y   <- Xc %*% vectors
+Y_2 <- Y[, 1:2]          # keep first two PCs
+
+cat("First 10 rows of the full transformed matrix Y (150×4):\n")
+round(head(Y, 10), 4)
+
+cat("\nFirst 10 rows of the reduced matrix Y(2) (150×2):\n")
+round(head(Y_2, 10), 4)
+```
+
+The first two principal components capture the majority of the variance, so we retain the $150 \times 2$ matrix $\mathcal{Y}_{(2)}$ for visualisation and further analysis.
+
+## Verification Using `prcomp`
+
+```{r prcomp}
+pca          <- prcomp(X, center = TRUE, scale. = FALSE)
+Y_2_prcomp   <- pca$x[, 1:2]
+
+cat("First 10 rows of Y(2) via prcomp:\n")
+round(head(Y_2_prcomp, 10), 4)
+```
+
+The scores from the manual computation and `prcomp` agree up to possible sign flips (signs of eigenvectors are arbitrary).
+
+## Visualisation: PCA Scatter Plot
+
+Projecting onto the first two PCs reduces the data from 4 dimensions to 2, making class structure visible.
+
+```{r pca-plot, fig.cap="PCA of the Iris Dataset: PC1 vs PC2 coloured by species."}
+plot(Y_2[, 1], Y_2[, 2],
+     col  = as.integer(iris$Species) + 1,
+     pch  = 19,
+     xlab = "PC1",
+     ylab = "PC2",
+     main = "PCA of Iris Dataset")
+
+legend("topright",
+       legend = levels(iris$Species),
+       col    = 2:4,
+       pch    = 19,
+       bty    = "n")
+```
+
+The plot shows that *setosa* is linearly separable from the other two species along PC1, while *versicolor* and *virginica* overlap somewhat along PC2.
+
+------------------------------------------------------------------------
+
+# Interpreting the Principal Components
+
+## Eigenvector Weights
+
+The first two PCs are linear combinations of the original variables:
+
+$$y_1 = 0.361\,x_1 - 0.085\,x_2 + 0.857\,x_3 + 0.358\,x_4$$
+
+$$y_2 = 0.657\,x_1 + 0.730\,x_2 - 0.173\,x_3 - 0.075\,x_4$$
+
+```{r weights}
+cat("Loadings (eigenvectors) for PC1 and PC2:\n")
+round(vectors[, 1:2], 3)
+```
+
+## Proportion of Variance Explained and Scree Table
+
+The proportion of total variance explained by the first $q$ PCs is:
+
+$$\psi_q = \frac{\sum_{j=1}^q \lambda_j}{\sum_{j=1}^p \lambda_j}$$
+
+```{r scree-table}
+var_exp <- values / sum(values) * 100
+cum_var <- cumsum(var_exp)
+
+scree_table <- data.frame(
+  PC          = 1:length(values),
+  Variance_pct  = round(var_exp, 2),
+  Cumulative_pct = round(cum_var, 2)
+)
+
+knitr::kable(scree_table,
+             col.names = c("PC", "Var (%)", "Cum. (%)"),
+             caption   = "Variance explained by each principal component (Iris).")
+```
+
+The first two PCs together explain **`r round(cum_var[2], 1)`%** of the total variation, confirming that the 2-dimensional projection is a highly faithful representation of the original 4-dimensional data.
+
+## Scree Plot
+
+```{r scree-plot, fig.cap="Scree plot: variance explained (%) by each PC for the Iris dataset."}
+plot(var_exp, type = "b", pch = 19,
+     xlab = "Principal Component",
+     ylab = "Variance Explained (%)",
+     main = "Scree Plot",
+     col  = "steelblue")
+abline(h = 0, lty = 2, col = "gray")
+```
+
+## Correlation Between Original Variables and PCs
+
+To measure how strongly each original variable $X_i$ is related to each PC $Y_j$, we compute:
+
+$$r_{X_i Y_j} = g_{ij} \left(\frac{l_j}{s_{X_i X_i}}\right)^{1/2}$$
+
+where $g_{ij}$ is the $(i,j)$ entry of the eigenvector matrix, $l_j$ is the $j$-th eigenvalue, and $s_{X_i X_i}$ is the sample variance of $X_i$.
+
+```{r cor-matrix}
+var_X  <- diag(S)
+var_Y  <- values
+cov_XY <- S %*% vectors
+
+cor_XY <- matrix(NA, nrow = ncol(X), ncol = ncol(X))
+for (j in 1:ncol(X)) {
+  for (k in 1:ncol(X)) {
+    if (var_Y[k] > 1e-10)
+      cor_XY[j, k] <- cov_XY[j, k] / sqrt(var_X[j] * var_Y[k])
+  }
+}
+colnames(cor_XY) <- paste0("PC", 1:ncol(X))
+rownames(cor_XY) <- c("Sepal.Length", "Sepal.Width", "Petal.Length", "Petal.Width")
+
+knitr::kable(round(cor_XY, 3),
+             caption = "Correlation between original variables and PCs (Iris).")
+```
+
+## Correlation Circle
+
+The correlation circle plots $r_{X_i Y_1}$ against $r_{X_i Y_2}$ for each original variable. All points lie inside (or on) the unit circle because $r^2_{X_i Y_1} + r^2_{X_i Y_2} \leq 1$. Variables near the boundary are *well-explained* by the two-dimensional projection.
+
+```{r cor-circle, fig.cap="Correlation circle: relationship between original Iris variables and the first two PCs."}
+cor_XY_2 <- cor_XY[, 1:2]
+
+plot(cor_XY_2[, 1], cor_XY_2[, 2],
+     xlim = c(-1.1, 1.1), ylim = c(-1.1, 1.1),
+     xlab = "PC1", ylab = "PC2",
+     main = "Correlation Circle",
+     pch  = 19, col = "darkred")
+
+text(cor_XY_2[, 1], cor_XY_2[, 2],
+     labels = rownames(cor_XY_2),
+     pos    = 3, cex = 0.8)
+
+theta <- seq(0, 2 * pi, length = 200)
+lines(cos(theta), sin(theta), col = "blue", lwd = 1.5)
+abline(h = 0, v = 0, col = "gray", lty = 2)
+```
+
+------------------------------------------------------------------------
+
+# PCA on the Handwritten Digits Dataset
+
+## Dataset Description
+
+We use the **ZIP code handwritten digit** dataset (`ElemStatLearn` package). Each image is a $16 \times 16$ greyscale pixel grid, giving a **256-dimensional** feature vector per image. We focus on the **650 images of the digit 3**.
+
+```{r load-digits}
+# Install from local archive if needed, otherwise load the package
+# install.packages("ElemStatLearn", repos = NULL, type = "source")
+library(ElemStatLearn)
+
+data(zip.train)
+X_full <- as.matrix(zip.train[, -1])
+y      <- zip.train[, 1]
+
+threes <- X_full[y == 3, ]
+
+cat("Dimensions of the digit-3 data matrix:", dim(threes), "\n")
+cat("(", nrow(threes), "images ×", ncol(threes), "pixels )\n")
+```
+
+## Visualising a Sample of Original Images
+
+```{r show-originals, fig.cap="Sample of 25 original handwritten digit-3 images.", fig.width=5, fig.height=5}
+par(mfrow = c(5, 5), mar = c(0, 0, 0, 0))
+for (i in 1:25) {
+  image(matrix(threes[i, ], 16, 16)[, 16:1],
+        col  = colorRampPalette(c("white", "red"))(256),
+        axes = FALSE)
+  box(col = "red")
+}
+par(mfrow = c(1, 1))
+```
+
+## Applying PCA
+
+The PCA steps mirror those for Iris, but now $p = 256$.
+
+```{r pca-digits}
+pca_d   <- prcomp(threes, center = TRUE, scale. = FALSE)
+
+X_bar_vec <- colMeans(threes)
+n <- nrow(threes)
+p <- ncol(threes)
+
+X_bar <- matrix(X_bar_vec, nrow = n, ncol = p, byrow = TRUE)
+
+G <- pca_d$rotation   # eigenvector matrix (256 × 256)
+Y <- pca_d$x          # score matrix (n × 256)
+```
+
+## Image Reconstruction
+
+Given the PCA transformation $\mathcal{Y} = \mathcal{X}_c \, G$, we can reconstruct the data using only $q$ principal components:
+
+$$\hat{\mathcal{X}}_{(q)} = \mathbf{1}_n \bar{x}^\top + \mathcal{Y}_{(q)} \, G_{(q)}^\top$$
+
+We compare reconstructions with $q = 2$ and $q = 10$ PCs against the original image.
+
+```{r reconstruct}
+# 2 PCs
+Y_2  <- Y[, 1:2];   G_2  <- G[, 1:2]
+X_hat_2  <- X_bar + Y_2  %*% t(G_2)
+
+# 10 PCs
+Y_10 <- Y[, 1:10];  G_10 <- G[, 1:10]
+X_hat_10 <- X_bar + Y_10 %*% t(G_10)
+```
+
+```{r recon-plot, fig.cap="Reconstruction of the first digit-3 image using 2 and 10 PCs.", fig.width=7, fig.height=3}
+par(mfrow = c(1, 3), mar = c(1, 1, 2, 1))
+
+image(matrix(threes[1, ],   16, 16)[, 16:1],
+      col  = colorRampPalette(c("white", "red"))(256),
+      main = "Original", axes = FALSE)
+
+image(matrix(X_hat_2[1, ],  16, 16)[, 16:1],
+      col  = colorRampPalette(c("white", "red"))(256),
+      main = "2 PCs", axes = FALSE)
+
+image(matrix(X_hat_10[1, ], 16, 16)[, 16:1],
+      col  = colorRampPalette(c("white", "red"))(256),
+      main = "10 PCs", axes = FALSE)
+
+par(mfrow = c(1, 1))
+```
+
+With just 10 PCs (out of 256), i.e. only **3.9%** of the original features, the reconstructed images are already recognisable as the digit 3.
+
+```{r show-reconstructed, fig.cap="Sample of 25 reconstructed digit-3 images using 10 PCs.", fig.width=5, fig.height=5}
+par(mfrow = c(5, 5), mar = c(0, 0, 0, 0))
+for (i in 1:25) {
+  image(matrix(X_hat_10[i, ], 16, 16)[, 16:1],
+        col  = colorRampPalette(c("white", "red"))(256),
+        axes = FALSE)
+  box(col = "blue")
+}
+par(mfrow = c(1, 1))
+```
+
+------------------------------------------------------------------------
+
+# Variance Explained vs. Number of Principal Components
+
+## Cumulative Variance Table
+
+```{r var-table}
+lambda <- pca_d$sdev^2
+psi    <- cumsum(lambda) / sum(lambda) * 100
+
+qs <- c(1, 5, 10, 20, 50, 100, 256)
+var_table <- data.frame(
+  q                = qs,
+  Cumulative_Var   = paste0(round(psi[qs], 1), "%"),
+  Compression_Ratio = paste0(p, " : ", qs)
+)
+
+knitr::kable(var_table,
+             col.names = c("q (# PCs)", "Cumulative Var. Explained", "Compression Ratio (p : q)"),
+             caption   = "Cumulative variance explained at selected numbers of PCs (digit-3 dataset).")
+```
+
+## Reconstruction Error vs. Number of Principal Components
+
+The total reconstruction error across all $n$ images when retaining $q$ components is, from the report's formula:
+
+$$\sum_{i=1}^{n} \|\mathbf{x}_i - \hat{\mathbf{x}}_{i,(q)}\|^2 = (n-1)\sum_{j=q+1}^{p} \ell_j$$
+
+We also report the **mean per-image error** (dividing by $n$) and the **mean per-pixel error** (dividing further by $p = 256$), which are easier to interpret on the original pixel-intensity scale.
+
+```{r recon-error-table}
+lambda <- pca_d$sdev^2
+total_var <- sum(lambda)
+
+qs <- c(1, 5, 10, 20, 50, 100, 150, 200, 256)
+
+error_table <- data.frame(
+  q                = qs,
+  Total_SSE        = sapply(qs, function(q) (n - 1) * sum(lambda[seq(q + 1, p)])),
+  Mean_Image_SSE   = sapply(qs, function(q) (n - 1) * sum(lambda[seq(q + 1, p)]) / n),
+  Mean_Pixel_MSE   = sapply(qs, function(q) (n - 1) * sum(lambda[seq(q + 1, p)]) / (n * p)),
+  Var_Retained_pct = round(cumsum(lambda)[qs] / total_var * 100, 1)
+)
+
+error_table[error_table$q == p,
+            c("Total_SSE", "Mean_Image_SSE", "Mean_Pixel_MSE")] <- 0
+
+error_table$Total_SSE      <- round(error_table$Total_SSE,      2)
+error_table$Mean_Image_SSE <- round(error_table$Mean_Image_SSE, 4)
+error_table$Mean_Pixel_MSE <- round(error_table$Mean_Pixel_MSE, 6)
+
+knitr::kable(
+  error_table,
+  col.names = c(
+    "q (PCs)",
+    "Total SSE",
+    "Mean SSE / image",
+    "Mean MSE / pixel",
+    "Var retained (%)"
+  ),
+  caption = "Reconstruction error at selected q for the digit-3 dataset."
+)
+```
